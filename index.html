@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RtNetdisk · 个人云盘</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:"Microsoft Yahei","PingFang SC",-apple-system,sans-serif; }
+  body {
+    min-height:100vh;
+    background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);
+    color:#fff;
+  }
+  .container { max-width:900px; margin:0 auto; padding:20px; }
+  .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+  .header h1 { font-size:22px; color:#ffd700; }
+  .user-info { font-size:14px; color:#a8a8d8; }
+  .card {
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.1);
+    border-radius:16px; padding:24px; margin-bottom:16px;
+    backdrop-filter:blur(10px);
+  }
+  .field { margin-bottom:14px; }
+  .field label { display:block; font-size:13px; color:#a8a8d8; margin-bottom:4px; }
+  .field input {
+    width:100%; padding:11px 14px; border-radius:10px;
+    border:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.25);
+    color:#fff; font-size:15px; outline:none;
+  }
+  .field input:focus { border-color:#ffd700; }
+  .btn {
+    padding:10px 20px; border-radius:10px; border:none;
+    font-size:14px; font-weight:bold; cursor:pointer; transition:0.15s;
+  }
+  .btn:active { transform:scale(0.98); }
+  .btn-primary { background:linear-gradient(135deg,#ffd700,#ff8822); color:#1a1a2e; }
+  .btn-secondary { background:rgba(78,205,196,0.15); color:#4ecdc4; border:1px solid rgba(78,205,196,0.4); }
+  .btn-danger { background:rgba(255,100,100,0.15); color:#ff6b6b; border:1px solid rgba(255,107,107,0.4); }
+  .btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .msg { font-size:13px; margin-top:10px; min-height:18px; }
+  .msg.ok { color:#39d98a; }
+  .msg.err { color:#ff8888; }
+  .hidden { display:none; }
+  .file-list { margin-top:16px; }
+  .file-item {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:12px; border-bottom:1px solid rgba(255,255,255,0.08);
+  }
+  .file-item:hover { background:rgba(255,255,255,0.04); }
+  .file-name { flex:1; font-size:14px; }
+  .file-size { font-size:12px; color:#a8a8d8; margin:0 16px; }
+  .upload-area {
+    border:2px dashed rgba(255,255,255,0.2); border-radius:12px;
+    padding:40px; text-align:center; margin:16px 0;
+    cursor:pointer; transition:0.2s;
+  }
+  .upload-area:hover { border-color:#ffd700; background:rgba(255,215,0,0.05); }
+  .upload-area.dragover { border-color:#ffd700; background:rgba(255,215,0,0.1); }
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- 登录页 -->
+  <div id="loginPage">
+    <div class="card" style="max-width:400px;margin:60px auto;">
+      <h2 style="color:#ffd700;margin-bottom:20px;">登录 RtNetdisk</h2>
+      <div class="field">
+        <label>邮箱</label>
+        <input type="email" id="loginEmail" placeholder="you@example.com">
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <input type="password" id="loginPass" placeholder="••••••••">
+      </div>
+      <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">登录</button>
+      <div style="text-align:center;margin-top:14px;font-size:13px;color:#a8a8d8;">
+        还没有账号？<a href="https://myacc.r6t5.dpdns.org/reg.html?app=netdisk" style="color:#4ecdc4;text-decoration:none;">注册新账号</a>
+      </div>
+      <div class="msg" id="loginMsg"></div>
+    </div>
+  </div>
+
+  <!-- 主页面 -->
+  <div id="mainPage" class="hidden">
+    <div class="header">
+      <h1>☁️ RtNetdisk</h1>
+      <div class="user-info">
+        <span id="userEmail"></span>
+        <button class="btn btn-secondary" style="margin-left:12px;padding:6px 14px;font-size:13px;" onclick="doLogout()">退出</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="color:#ffd700;margin-bottom:16px;">📤 上传文件</h2>
+      <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+        <div style="font-size:40px;margin-bottom:8px;">📁</div>
+        <div>点击或拖拽文件到这里上传</div>
+        <input type="file" id="fileInput" style="display:none;" onchange="handleUpload(this.files)">
+      </div>
+      <div class="msg" id="uploadMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="color:#ffd700;margin-bottom:16px;">📂 我的文件</h2>
+      <div class="file-list" id="fileList">
+        <div style="text-align:center;color:#a8a8d8;padding:20px;">加载中...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const SUPABASE_URL = "https://fckqmlwkujixwztzqqni.supabase.co";
+const SUPABASE_KEY = "sb_publishable_x0i6QcZ6TEOAy40Ub8TAbQ_07YQnrAG";
+const API_BASE = "/api";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true }
+});
+
+function showMsg(id, text, ok) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = "msg " + (ok ? "ok" : "err");
+}
+
+async function doLogin() {
+  const email = document.getElementById("loginEmail").value.trim();
+  const pass = document.getElementById("loginPass").value;
+  if (!email || !pass) { showMsg("loginMsg", "请输入邮箱和密码", false); return; }
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = true; btn.textContent = "登录中…";
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false; btn.textContent = "登录";
+  if (error) showMsg("loginMsg", error.message, false);
+}
+
+async function doLogout() {
+  await sb.auth.signOut();
+  location.reload();
+}
+
+async function getToken() {
+  const { data: { session } } = await sb.auth.getSession();
+  return session?.access_token;
+}
+
+async function loadFiles() {
+  const token = await getToken();
+  if (!token) return;
+  try {
+    const res = await fetch(API_BASE + "/files", {
+      headers: { "Authorization": "Bearer " + token }
+    });
+    const data = await res.json();
+    renderFiles(data.files || []);
+  } catch (e) {
+    document.getElementById("fileList").innerHTML = '<div style="text-align:center;color:#ff8888;">加载失败</div>';
+  }
+}
+
+function renderFiles(files) {
+  const list = document.getElementById("fileList");
+  if (files.length === 0) {
+    list.innerHTML = '<div style="text-align:center;color:#a8a8d8;padding:20px;">还没有文件，上传一个吧</div>';
+    return;
+  }
+  list.innerHTML = files.map(f => `
+    <div class="file-item">
+      <div class="file-name">📄 ${f.name}</div>
+      <div class="file-size">${formatSize(f.size)}</div>
+      <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;margin-right:8px;" onclick="downloadFile('${f.name}')">下载</button>
+      <button class="btn btn-danger" style="padding:6px 12px;font-size:12px;" onclick="deleteFile('${f.name}')">删除</button>
+    </div>
+  `).join("");
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+}
+
+async function handleUpload(files) {
+  if (!files || files.length === 0) return;
+  const token = await getToken();
+  const file = files[0];
+  showMsg("uploadMsg", "上传中...", true);
+  try {
+    const res = await fetch(API_BASE + "/upload", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + token,
+        "Content-Type": file.type
+      },
+      body: file
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showMsg("uploadMsg", "✅ 上传成功", true);
+      loadFiles();
+    } else {
+      showMsg("uploadMsg", "❌ " + (data.error || "上传失败"), false);
+    }
+  } catch (e) {
+    showMsg("uploadMsg", "❌ 上传失败: " + e.message, false);
+  }
+}
+
+async function downloadFile(name) {
+  const token = await getToken();
+  window.open(API_BASE + "/file/" + encodeURIComponent(name) + "?token=" + token);
+}
+
+async function deleteFile(name) {
+  if (!confirm("确定删除这个文件？")) return;
+  const token = await getToken();
+  try {
+    const res = await fetch(API_BASE + "/file/" + encodeURIComponent(name), {
+      method: "DELETE",
+      headers: { "Authorization": "Bearer " + token }
+    });
+    const data = await res.json();
+    if (data.ok) {
+      loadFiles();
+    } else {
+      alert("删除失败");
+    }
+  } catch (e) {
+    alert("删除失败");
+  }
+}
+
+// 拖拽上传
+const uploadArea = document.getElementById("uploadArea");
+uploadArea.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  uploadArea.classList.add("dragover");
+});
+uploadArea.addEventListener("dragleave", () => {
+  uploadArea.classList.remove("dragover");
+});
+uploadArea.addEventListener("drop", (e) => {
+  e.preventDefault();
+  uploadArea.classList.remove("dragover");
+  handleUpload(e.dataTransfer.files);
+});
+
+// 监听登录状态
+sb.auth.onAuthStateChange((event, session) => {
+  if (session && session.user) {
+    document.getElementById("loginPage").classList.add("hidden");
+    document.getElementById("mainPage").classList.remove("hidden");
+    document.getElementById("userEmail").textContent = session.user.email || "";
+    loadFiles();
+  } else {
+    document.getElementById("loginPage").classList.remove("hidden");
+    document.getElementById("mainPage").classList.add("hidden");
+  }
+});
+</script>
+</body>
+</html>
